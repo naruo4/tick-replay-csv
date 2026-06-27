@@ -1,12 +1,21 @@
-# 歩値CSVリプレイ
+# 歩値CSVリプレイ made with chatGPT
 
 歩値CSVをブラウザ上で読み込み、歩み値とローソク足をリプレイするためのHTMLツールです。
+SBI証券のBriskからダウンロードした歩値をそのまま使用する形式です。ファイル名規則はBriskからのダウンロード名に準じています。
+「qr-nnnn-YYYYMMDD.csv」(nnnn:銘柄コード)
+
+## BriskからのCSVダウンロード方法
+国内株式→Brisk起動
+<img width="2481" height="1722" alt="111" src="https://github.com/user-attachments/assets/e246fda5-7f42-4e9b-8199-c2fae8ac6b6c" />
+
+Briskの歩値タブからCSVダウンロード
+<img width="3508" height="1725" alt="222" src="https://github.com/user-attachments/assets/59267908-de40-4b98-ace4-938d123da056" />
 
 ## 使い方
 
 1. 公開ページを開く
 2. 歩値CSVを選択
-3. 必要に応じて前日終値を手入力
+3. 必要に応じて前日終値を手入力（自動で引っ張ってこれればいいのですが、CORSの関係で手入力にしています。前日からの比較にだけ使うので任意です。）
 4. 再生ボタンでリプレイ
 
 ## 特徴
