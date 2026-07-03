@@ -28,12 +28,14 @@ Briskの歩値タブからCSVダウンロード
 
 ### シンプル版
 軽量な歩値リプレイ版です。まずはこちらを推奨します。
+
 [シンプル版を開く](https://naruo4.github.io/tick-replay-csv/)
 
 ### 多機能版
 1570との相対比較、Momentum、RS、E/H判定、仮想売買機能などを追加した版です。
 チャート表示が多いため、PC環境によっては重くなる場合があります。
-[多機能版を開く](https://naruo4.github.io/tick-replay-csv/tick_replay_full.html)
+
+[多機能版を開く](https://naruo4.github.io/tick-replay-csv/advanced.html)
 
 ## 特徴
 
@@ -62,7 +64,7 @@ Briskの歩値タブからCSVダウンロード
 
 
 **2026.7.3追記**
-[多機能版を開く](https://naruo4.github.io/tick-replay-csv/tick_replay_full.html)
+[多機能版を開く](https://naruo4.github.io/tick-replay-csv/advanced.html)
 ## 多機能版について
 
 この多機能版では、通常の歩値CSVリプレイに加えて、仮想売買機能、1570（日経レバ）との比較、Momentum、Relative Strength、E/H判定などを追加しています。
