@@ -32,11 +32,12 @@ a.linkbtn{color:#dce5e9;text-decoration:none;border:1px solid #5594bc;padding:5p
 .left{border-right:1px solid #8b9aa2;overflow:hidden;display:flex;flex-direction:column}
 .tabs{height:38px;display:flex;align-items:end;border-bottom:1px solid #778890}
 .tab{padding:8px 18px;color:#58a6d6;font-weight:700;border-bottom:3px solid #58a6d6}
-.tapeWrap{flex:1;overflow:auto}
-.table{width:max-content;border-collapse:collapse;table-layout:auto;font-size:13px}
+.tapeWrap{flex:1;overflow:auto;scrollbar-gutter:stable}
+.table{width:max-content;border-collapse:collapse;table-layout:auto;font-size:13px;font-variant-numeric:tabular-nums}
 .table thead th{position:sticky;top:0;background:#4a4d4d;color:#fff;padding:6px 8px;border:1px solid #707879;white-space:nowrap}
 .table tbody td{padding:4px 8px;border:1px solid #52636b;text-align:right;font-weight:700;white-space:nowrap}
 .table tbody td.time{text-align:center;font-size:12px}
+/* Column mins are set in lockTapeColumns() from the tape's own widest prints. */
 tr.up td.price,tr.up td.qty,tr.up td.amount{background:var(--green);color:white}
 tr.down td.price,tr.down td.qty,tr.down td.amount{background:var(--red);color:white}
 tr.flat td.price,tr.flat td.qty,tr.flat td.amount{background:#29353b;color:white}
@@ -471,7 +472,38 @@ function advanceToPlayMs(ms){ currentPlayMs=Math.min(ms,DATA.summary.endPlayMs);
 function play(){ if(!DATA.ticks.length)return; pause(); playBaseReal=performance.now(); playBaseMarket=currentPlayMs; const speed=Number(document.getElementById('speed').value); timer=setInterval(()=>{ const elapsed=performance.now()-playBaseReal; advanceToPlayMs(playBaseMarket+elapsed*speed); },35); }
 function pause(){ if(timer)clearInterval(timer); timer=null; }
 function resetReplay(){ pause(); if(!DATA.ticks.length){ renderAllCharts(true); return; } idx=0; currentPlayMs=DATA.summary.startPlayMs; tapeBody.innerHTML=''; addTickToTape(DATA.ticks[0]); updateHeader(); renderAllCharts(true); }
-function installData(d){ DATA=d; idx=0; currentPlayMs=DATA.summary.startPlayMs; document.getElementById('stockCode').value=DATA.code||''; document.getElementById('tradeDate').value=DATA.tradeDate||''; document.getElementById('symbolName').value=DATA.symbol||''; updateKabutanLinks(DATA.code); const sub=[DATA.market, DATA.industry].filter(Boolean).join(' / '); document.getElementById('titleSymbol').textContent='● '+(DATA.code?DATA.code+' ':'')+DATA.symbol+(sub?' ['+sub+']':'')+(DATA.tradeDate?' / '+DATA.tradeDate:''); slider.max=DATA.tickCount-1; slider.value=0; resetReplay(); resetTrading(); }
+function lockTapeColumns(){
+  if(!DATA.ticks.length)return;
+  let maxPrice=0,maxQty=0,maxAmt=0;
+  for(const t of DATA.ticks){
+    if(t[1]>maxPrice)maxPrice=t[1];
+    if(t[2]>maxQty)maxQty=t[2];
+    if(t[3]>maxAmt)maxAmt=t[3];
+  }
+  const table=document.querySelector(".tapeWrap table");
+  const holder=document.createElement("tbody");
+  const tr=document.createElement("tr");
+  tr.innerHTML='<td class="price"></td><td class="qty"></td><td class="amount"></td><td class="time"></td>';
+  holder.appendChild(tr);
+  holder.style.cssText="position:absolute;left:-9999px;top:0;visibility:hidden";
+  table.appendChild(holder);
+  const labels=[maxPrice.toLocaleString(),maxQty.toLocaleString(),maxAmt.toFixed(4),"88:88:88.888"];
+  const widths=[...tr.children].map((td,i)=>{
+    const s=document.createElement("span");
+    s.textContent=labels[i];
+    td.appendChild(s);
+    return Math.ceil(s.getBoundingClientRect().width)+"px";
+  });
+  holder.remove();
+  let style=document.getElementById("tapeColLock");
+  if(!style){style=document.createElement("style");style.id="tapeColLock";document.head.appendChild(style)}
+  style.textContent=
+    ".tapeWrap thead th:nth-child(1),.tapeWrap td.price{min-width:"+widths[0]+"}"+
+    ".tapeWrap thead th:nth-child(2),.tapeWrap td.qty{min-width:"+widths[1]+"}"+
+    ".tapeWrap thead th:nth-child(3),.tapeWrap td.amount{min-width:"+widths[2]+"}"+
+    ".tapeWrap thead th:nth-child(4),.tapeWrap td.time{min-width:"+widths[3]+"}";
+}
+function installData(d){ DATA=d; lockTapeColumns(); idx=0; currentPlayMs=DATA.summary.startPlayMs; document.getElementById('stockCode').value=DATA.code||''; document.getElementById('tradeDate').value=DATA.tradeDate||''; document.getElementById('symbolName').value=DATA.symbol||''; updateKabutanLinks(DATA.code); const sub=[DATA.market, DATA.industry].filter(Boolean).join(' / '); document.getElementById('titleSymbol').textContent='● '+(DATA.code?DATA.code+' ':'')+DATA.symbol+(sub?' ['+sub+']':'')+(DATA.tradeDate?' / '+DATA.tradeDate:''); slider.max=DATA.tickCount-1; slider.value=0; resetReplay(); resetTrading(); }
 async function loadFile(file){ const buf=await file.arrayBuffer(); const text=new TextDecoder('utf-8').decode(buf); const rows=parseCSV(text); const data=buildDataFromRows(rows,file.name); installData(data); }
 async function loadRefFile(file){ const buf=await file.arrayBuffer(); const text=new TextDecoder('utf-8').decode(buf); const rows=parseCSV(text); const data=buildDataFromRows(rows,file.name,'1570'); REFDATA=data; REFDATA.symbol='1570'; const st=document.getElementById('refStatus'); const codeOk=(data.code==='1570' || /1570/.test(file.name)); st.textContent=(codeOk?'1570読込済':'参照CSV読込済')+' / '+data.tickCount.toLocaleString()+'件'; st.classList.remove('refMissing'); st.classList.add('refReady'); renderAllCharts(true); }
 document.getElementById('csvFile').addEventListener('change',e=>{ const file=e.target.files[0]; if(!file)return; loadFile(file).catch(err=>alert('CSV読込エラー: '+err.message)); });
