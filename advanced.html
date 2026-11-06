@@ -28,14 +28,14 @@ a.linkbtn{color:#dce5e9;text-decoration:none;border:1px solid #5594bc;padding:5p
 .metricNeutral,.tradePnlNeutral{color:#dce5e9;font-weight:700}
 .refReady{color:#8ee89a;font-weight:800}
 .refMissing{color:#ffbf7a;font-weight:800}
-.layout{display:grid;grid-template-columns:220px 1fr;height:calc(100vh - 71px)}
+.layout{display:grid;grid-template-columns:max-content minmax(0,1fr);height:calc(100vh - 71px)}
 .left{border-right:1px solid #8b9aa2;overflow:hidden;display:flex;flex-direction:column}
 .tabs{height:38px;display:flex;align-items:end;border-bottom:1px solid #778890}
 .tab{padding:8px 18px;color:#58a6d6;font-weight:700;border-bottom:3px solid #58a6d6}
 .tapeWrap{flex:1;overflow:auto}
-.table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:13px}
-.table thead th{position:sticky;top:0;background:#4a4d4d;color:#fff;padding:6px;border:1px solid #707879}
-.table tbody td{padding:4px 5px;border:1px solid #52636b;text-align:right;font-weight:700}
+.table{width:max-content;border-collapse:collapse;table-layout:auto;font-size:13px}
+.table thead th{position:sticky;top:0;background:#4a4d4d;color:#fff;padding:6px 8px;border:1px solid #707879;white-space:nowrap}
+.table tbody td{padding:4px 8px;border:1px solid #52636b;text-align:right;font-weight:700;white-space:nowrap}
 .table tbody td.time{text-align:center;font-size:12px}
 tr.up td.price,tr.up td.qty,tr.up td.amount{background:var(--green);color:white}
 tr.down td.price,tr.down td.qty,tr.down td.amount{background:var(--red);color:white}
@@ -65,7 +65,7 @@ tr.flat td.price,tr.flat td.qty,tr.flat td.amount{background:#29353b;color:white
 .logTable tbody td.txt{text-align:left}
 .logTable tbody td.center{text-align:center}
 .foot{height:25px;color:#b4c0c5;font-size:12px;padding:3px 12px;border-top:1px solid #52636b}
-@media (max-width: 1200px){.layout{grid-template-columns:200px 1fr}.chartGrid{grid-template-columns:1fr}.logPane{height:210px}}
+@media (max-width: 1200px){.layout{grid-template-columns:max-content minmax(0,1fr)}.chartGrid{grid-template-columns:1fr}.logPane{height:210px}}
 </style>
 </head>
 <body>
@@ -267,7 +267,66 @@ function executeTrade(side,qty,price,ms,kind){ if(!qty||!Number.isFinite(price))
 function orderHits(order,tick){return order.side==="buy" ? tick[1]<=order.price : tick[1]>=order.price}
 function placeLimit(side){ if(!DATA.ticks.length)return; const qty=getTradeQty(),price=getLimitPrice(); if(!qty||!Number.isFinite(price)){alert("株数と指値を確認してください");return} const tick=DATA.ticks[idx]; const order={id:TRADE.nextOrderId++,side,qty,price,createdMs:tick[5]}; if(orderHits(order,tick))executeTrade(side,qty,tick[1],tick[5],side==="buy"?"買指値即時":"売指値即時"); else {TRADE.pending.push(order); updateTradeUI();} }
 function processPendingOrders(tick){ if(!TRADE.pending.length)return; const rest=[]; for(const o of TRADE.pending){ if(orderHits(o,tick))executeTrade(o.side,o.qty,o.price,tick[5],o.side==="buy"?"買指値":"売指値"); else rest.push(o); } TRADE.pending=rest; updateTradeUI(); }
-function visibleBars(bars){ if(document.getElementById("windowMode").value==="all")return bars; const keep=barMinutes===1?100:85; return bars.slice(Math.max(0,bars.length-keep)); }
+function windowKeep(){return barMinutes===1?100:85}
+function isFullSession(){return document.getElementById("windowMode").value==="all"}
+function followRange(n){ if(isFullSession()||n<=0)return null; const start=Math.max(0,n-windowKeep()); return [start-0.5,n-0.5]; }
+function viewBars(bars){ if(!bars.length||isFullSession())return bars; return bars.slice(Math.max(0,bars.length-windowKeep())); }
+function axisPair(e){
+  if(!e)return null;
+  const r0=e["xaxis.range[0]"]!=null?e["xaxis.range[0]"]:(Array.isArray(e["xaxis.range"])?e["xaxis.range"][0]:null);
+  const r1=e["xaxis.range[1]"]!=null?e["xaxis.range[1]"]:(Array.isArray(e["xaxis.range"])?e["xaxis.range"][1]:null);
+  if(r0==null||r1==null)return null;
+  const a=Number(r0), b=Number(r1);
+  return [Number.isFinite(a)?a:r0, Number.isFinite(b)?b:r1];
+}
+function barsCoveringRange(bars,r0,r1){
+  if(!bars.length||r0==null||r1==null)return bars;
+  let i0=0,i1=bars.length-1;
+  if(typeof r0==="number"&&typeof r1==="number"){
+    i0=Math.max(0,Math.floor(r0));
+    i1=Math.min(bars.length-1,Math.ceil(r1));
+  }else{
+    const s=String(r0), e=String(r1);
+    const found=bars.findIndex(b=>String(b.time)>=s);
+    i0=found<0?0:found;
+    for(let i=bars.length-1;i>=0;i--){ if(String(bars[i].time)<=e){ i1=i; break; } }
+  }
+  if(i1<i0)return bars;
+  return bars.slice(i0,i1+1);
+}
+let mainSeries=null, refSeries=null, ignoreRelayout=0;
+function bindPan(id, handler){
+  const el=document.getElementById(id);
+  if(!el||el.dataset.panBound||typeof el.on!=="function")return;
+  el.on("plotly_relayout", handler);
+  el.on("plotly_relayouting", handler);
+  el.dataset.panBound="1";
+}
+function fitMainY(e){
+  if(ignoreRelayout||!mainSeries)return;
+  const pair=axisPair(e); if(!pair)return;
+  const vis=barsCoveringRange(mainSeries.bars, pair[0], pair[1]);
+  if(!vis.length)return;
+  const upd={"yaxis.range":getAxisRange(vis),"yaxis4.range":getVolumePlot(vis).range};
+  const sqzR=paddedRangeIncludeZero(vis.map(b=>mainSeries.sqz.val[b.index]));
+  const rsR=paddedRangeIncludeZero(vis.map(b=>mainSeries.rs[b.index]));
+  if(sqzR)upd["yaxis2.range"]=sqzR;
+  if(rsR)upd["yaxis3.range"]=rsR;
+  ignoreRelayout++;
+  Promise.resolve(Plotly.relayout("mainChart", upd)).finally(()=>{ignoreRelayout=Math.max(0,ignoreRelayout-1)});
+}
+function fitRefY(e){
+  if(ignoreRelayout||!refSeries)return;
+  const pair=axisPair(e); if(!pair)return;
+  const vis=barsCoveringRange(refSeries.bars, pair[0], pair[1]);
+  if(!vis.length)return;
+  const upd={"yaxis.range":getAxisRange(vis)};
+  const sqzR=paddedRangeIncludeZero(vis.map(b=>refSeries.sqz.val[b.index]));
+  if(sqzR)upd["yaxis2.range"]=sqzR;
+  ignoreRelayout++;
+  Promise.resolve(Plotly.relayout("refChart", upd)).finally(()=>{ignoreRelayout=Math.max(0,ignoreRelayout-1)});
+}
+
 function getAxisRange(bars){ if(!bars.length)return [0,1]; let minP=Infinity,maxP=-Infinity; for(const b of bars){minP=Math.min(minP,b.low);maxP=Math.max(maxP,b.high);} const pad=Math.max(1,(maxP-minP)*0.08); return [minP-pad,maxP+pad]; }
 function finiteValues(values){return values.filter(v=>Number.isFinite(v));}
 function paddedRangeIncludeZero(values){
@@ -295,13 +354,15 @@ function renderMainChart(force=false){
   if(!DATA.ticks.length){renderEmpty('mainChart','銘柄CSVを読み込んでください'); return;}
   const now=performance.now(); if(!force && now-lastRender<120)return; lastRender=now;
   const fullBars=buildLiveBars(idx), ind=computeIndicators(fullBars), sqz=computeSqzMom(fullBars), rs=computeRelativeStrength(fullBars);
-  const bars=visibleBars(fullBars); if(!bars.length){renderEmpty('mainChart','データがありません');return;}
-  const range=getAxisRange(bars), x=bars.map(b=>b.time);
-  const sqzVisible=bars.map(b=>sqz.val[b.index]);
-  const sqzRange=paddedRangeIncludeZero(sqzVisible);
-  const rsVisible=bars.map(b=>rs[b.index]);
-  const rsRange=paddedRangeIncludeZero(rsVisible);
+  const bars=fullBars; if(!bars.length){renderEmpty('mainChart','データがありません');return;}
+  const view=viewBars(bars);
+  const xr=followRange(bars.length);
+  mainSeries={bars, sqz, rs};
+  const range=getAxisRange(view), x=bars.map(b=>b.time);
+  const sqzRange=paddedRangeIncludeZero(view.map(b=>sqz.val[b.index]));
+  const rsRange=paddedRangeIncludeZero(view.map(b=>rs[b.index]));
   const volPlot=getVolumePlot(bars);
+  const volRange=getVolumePlot(view).range;
   const traces=[];
   traces.push({
     type:'bar',
@@ -352,29 +413,34 @@ function renderMainChart(force=false){
   if(!REFDATA.ticks.length){annotations.push({text:'1570未読込：E/H・RSは未判定',xref:'paper',yref:'paper',x:.99,y:.98,xanchor:'right',yanchor:'top',showarrow:false,font:{size:12,color:'#ffbf7a'}});}
   else { const lastSignal=ind[ind.length-1]; if(lastSignal && Number.isFinite(lastSignal.refNikkeiPct))annotations.push({text:'1570日経換算 '+fmtPct(lastSignal.refNikkeiPct),xref:'paper',yref:'paper',x:.99,y:.98,xanchor:'right',yanchor:'top',showarrow:false,font:{size:12,color:lastSignal.refUp?'#8ee89a':'#ffbf7a'}}); }
   const commonX={gridcolor:'#43545c',tickfont:{size:11},showspikes:true,spikemode:'across',spikesnap:'cursor',spikethickness:1,spikedash:'dot',spikecolor:'#dce5e9',rangeslider:{visible:false}};
+  const xaxis={...commonX,domain:[0,1],anchor:'y',showticklabels:false,autorange:!xr};
+  if(xr)xaxis.range=xr;
   const layout={margin:{l:52,r:44,t:16,b:35},paper_bgcolor:'#202b31',plot_bgcolor:'#202b31',font:{color:'#dce5e9'},
-    xaxis:{...commonX,domain:[0,1],anchor:'y',showticklabels:false},
+    xaxis,
     yaxis:{domain:[.60,1],range,gridcolor:'#66777f',tickformat:',d'},
     xaxis4:{...commonX,domain:[0,1],anchor:'y4',matches:'x',showticklabels:false,showgrid:false},
-    yaxis4:{domain:[.50,.58],anchor:'x4',range:volPlot.range,showgrid:false,zeroline:false,showticklabels:false,fixedrange:true},
+    yaxis4:{domain:[.50,.58],anchor:'x4',range:volRange,showgrid:false,zeroline:false,showticklabels:false,fixedrange:true},
     xaxis2:{...commonX,domain:[0,1],anchor:'y2',matches:'x',showticklabels:false},
     yaxis2:{domain:[.24,.42],range:sqzRange || undefined,gridcolor:'#5b6b72',zeroline:true,zerolinecolor:'#888',tickfont:{size:10}},
     xaxis3:{...commonX,domain:[0,1],anchor:'y3',matches:'x',showticklabels:true},
     yaxis3:{domain:[0,.18],range:rsRange || undefined,gridcolor:'#5b6b72',tickformat:'.2%',zeroline:true,zerolinecolor:'#a95c8d',tickfont:{size:10}},
     showlegend:true,legend:{orientation:'h',x:0,y:1.06},dragmode:'pan',shapes,annotations
   };
-  Plotly.react('mainChart',traces,layout,{displayModeBar:false,responsive:true,scrollZoom:true});
+  ignoreRelayout++;
+  Promise.resolve(Plotly.react('mainChart',traces,layout,{displayModeBar:false,responsive:true,scrollZoom:true})).finally(()=>{bindPan('mainChart', fitMainY); ignoreRelayout=Math.max(0,ignoreRelayout-1);});
   document.getElementById('mainChartTitle').textContent=(DATA.code?DATA.code+' ':'')+(DATA.symbol||'銘柄チャート');
 }
 function renderRefChart(){
   if(!REFDATA.ticks.length){renderEmpty('refChart','1570 CSVを読み込んでください'); return;}
   const syncMs=DATA.ticks.length ? DATA.ticks[idx][5] : NaN;
-  const barsAll=buildRefBarsUptoMs(syncMs), bars=visibleBars(barsAll);
+  const barsAll=buildRefBarsUptoMs(syncMs), bars=barsAll;
   if(!bars.length){renderEmpty('refChart','1570データがありません'); return;}
+  const view=viewBars(bars);
+  const xr=followRange(bars.length);
   const close=barsAll.map(b=>b.close), emaFast=emaSeries(close,IND.emaFastLen), emaSlow=emaSeries(close,IND.emaSlowLen), sqz=computeSqzMom(barsAll);
-  const range=getAxisRange(bars), x=bars.map(b=>b.time), traces=[];
-  const sqzVisible=bars.map(b=>sqz.val[b.index]);
-  const sqzRange=paddedRangeIncludeZero(sqzVisible);
+  refSeries={bars, sqz};
+  const range=getAxisRange(view), x=bars.map(b=>b.time), traces=[];
+  const sqzRange=paddedRangeIncludeZero(view.map(b=>sqz.val[b.index]));
   traces.push({type:'candlestick',x,open:bars.map(b=>b.open),high:bars.map(b=>b.high),low:bars.map(b=>b.low),close:bars.map(b=>b.close),name:'1570',xaxis:'x',yaxis:'y',increasing:{line:{color:'#7fe48c'},fillcolor:'#7fe48c'},decreasing:{line:{color:'#f07b7b'},fillcolor:'#f07b7b'}});
   traces.push({type:'scatter',mode:'lines',x,y:bars.map(b=>b.vwap),name:'VWAP',line:{color:'#65c4b1',width:2},xaxis:'x',yaxis:'y'});
   traces.push({type:'scatter',mode:'lines',x,y:bars.map(b=>emaFast[b.index]),name:'EMA20',line:{color:'#f2a33a',width:1.6},xaxis:'x',yaxis:'y'});
@@ -385,13 +451,16 @@ function renderRefChart(){
   const last=barsAll[barsAll.length-1];
   if(last && barsAll.length>IND.refLookback){ const prev=barsAll[barsAll.length-1-IND.refLookback]; const refNikkeiPct=(last.close/prev.close-1)*100/2; annotations.push({text:'日経換算 '+fmtPct(refNikkeiPct),xref:'paper',yref:'paper',x:.99,y:.98,xanchor:'right',yanchor:'top',showarrow:false,font:{size:12,color:refNikkeiPct>=0?'#8ee89a':'#ff9a9a'}}); }
   const commonX={gridcolor:'#43545c',tickfont:{size:11},showspikes:true,spikemode:'across',spikesnap:'cursor',spikethickness:1,spikedash:'dot',spikecolor:'#dce5e9',rangeslider:{visible:false}};
+  const xaxis={...commonX,domain:[0,1],anchor:'y',showticklabels:false,autorange:!xr};
+  if(xr)xaxis.range=xr;
   const layout={margin:{l:52,r:44,t:16,b:35},paper_bgcolor:'#202b31',plot_bgcolor:'#202b31',font:{color:'#dce5e9'},
-    xaxis:{...commonX,domain:[0,1],anchor:'y',showticklabels:false},
+    xaxis,
     yaxis:{domain:[.34,1],range,gridcolor:'#66777f',tickformat:',d'},
     xaxis2:{...commonX,domain:[0,1],anchor:'y2',matches:'x',showticklabels:true},
     yaxis2:{domain:[0,.25],range:sqzRange || undefined,gridcolor:'#5b6b72',zeroline:true,zerolinecolor:'#888',tickfont:{size:10}},
     showlegend:true,legend:{orientation:'h',x:0,y:1.06},dragmode:'pan',annotations};
-  Plotly.react('refChart',traces,layout,{displayModeBar:false,responsive:true,scrollZoom:true});
+  ignoreRelayout++;
+  Promise.resolve(Plotly.react('refChart',traces,layout,{displayModeBar:false,responsive:true,scrollZoom:true})).finally(()=>{bindPan('refChart', fitRefY); ignoreRelayout=Math.max(0,ignoreRelayout-1);});
   document.getElementById('refChartTitle').textContent='1570 ' + (REFDATA.tradeDate ? '/ '+REFDATA.tradeDate : '');
 }
 function renderAllCharts(force=false){ renderMainChart(force); renderRefChart(); }

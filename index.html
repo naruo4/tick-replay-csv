@@ -10,16 +10,16 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,B
 header{height:48px;display:flex;align-items:center;gap:12px;padding:0 14px;border-bottom:1px solid #83919a;font-weight:700;white-space:nowrap;overflow:hidden}
 .codebox{border:1px solid #aab5bb;border-radius:4px;color:#b8c3c8;padding:3px 8px}.topnum{font-size:17px}
 input[type=file]{max-width:260px;color:#dce5e9}
-.layout{display:grid;grid-template-columns:34% 66%;height:calc(100vh - 49px)}
+.layout{display:grid;grid-template-columns:max-content minmax(0,1fr);height:calc(100vh - 49px)}
 .left{border-right:1px solid #8b9aa2;overflow:hidden;display:flex;flex-direction:column}
 .tabs{height:38px;display:flex;align-items:end;border-bottom:1px solid #778890}.tab{padding:8px 24px;color:#58a6d6;font-weight:700;border-bottom:3px solid #58a6d6}
-.tapeWrap{flex:1;overflow:hidden}table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:15px}
-thead th{position:sticky;top:0;background:#4a4d4d;color:white;padding:6px;border:1px solid #707879}
-tbody td{padding:4px 6px;border:1px solid #52636b;text-align:right;font-weight:700}tbody td.time{text-align:center;font-size:13px}
+.tapeWrap{flex:1;overflow:auto}table{width:max-content;border-collapse:collapse;table-layout:auto;font-size:15px}
+thead th{position:sticky;top:0;background:#4a4d4d;color:white;padding:6px 8px;border:1px solid #707879;white-space:nowrap}
+tbody td{padding:4px 8px;border:1px solid #52636b;text-align:right;font-weight:700;white-space:nowrap}tbody td.time{text-align:center;font-size:13px}
 tr.up td.price,tr.up td.qty,tr.up td.amount{background:var(--green);color:white}
 tr.down td.price,tr.down td.qty,tr.down td.amount{background:var(--red);color:white}
 tr.flat td.price,tr.flat td.qty,tr.flat td.amount{background:#29353b;color:white}
-.right{display:flex;flex-direction:column}.controls{height:62px;display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid #50616a;flex-wrap:wrap}
+.right{display:flex;flex-direction:column;min-width:0}.controls{height:62px;display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid #50616a;flex-wrap:wrap}
 button,select,input[type=range],input[type=text]{background:#26343b;color:var(--text);border:1px solid #5594bc;padding:6px 10px;font-size:14px}
 button.primary{background:#396d91}.stat{color:#c7d0d4;font-size:14px;min-width:115px}
 #chart{flex:1;min-height:0}.foot{height:25px;color:#b4c0c5;font-size:12px;padding:3px 12px;border-top:1px solid #52636b}
@@ -226,23 +226,96 @@ function buildLiveBars(upto){
   }
   return bars;
 }
-function visibleBars(bars){if(document.getElementById("windowMode").value==="all")return bars;const keep=barMinutes===1?90:80;return bars.slice(Math.max(0,bars.length-keep))}
+function windowKeep(){return barMinutes===1?90:80}
+function isFullSession(){return document.getElementById("windowMode").value==="all"}
+let chartBars=[];
+let ignoreRelayout=0;
+function priceVolRange(bars){
+  let minP=Infinity,maxP=-Infinity,maxVol=1;
+  for(const b of bars){
+    if(b.low<minP)minP=b.low;
+    if(b.high>maxP)maxP=b.high;
+    if(b.volume>maxVol)maxVol=b.volume;
+  }
+  if(!Number.isFinite(minP))return {price:[0,1],vol:[0,1]};
+  const pad=Math.max(20,(maxP-minP)*0.12);
+  return {price:[minP-pad,maxP+pad],vol:[0,maxVol*1.20]};
+}
+function axisPair(e){
+  if(!e)return null;
+  const r0=e["xaxis.range[0]"]!=null?e["xaxis.range[0]"]:(Array.isArray(e["xaxis.range"])?e["xaxis.range"][0]:null);
+  const r1=e["xaxis.range[1]"]!=null?e["xaxis.range[1]"]:(Array.isArray(e["xaxis.range"])?e["xaxis.range"][1]:null);
+  if(r0==null||r1==null)return null;
+  const a=Number(r0), b=Number(r1);
+  return [Number.isFinite(a)?a:r0, Number.isFinite(b)?b:r1];
+}
+function barsCoveringRange(bars,r0,r1){
+  if(!bars.length||r0==null||r1==null)return bars;
+  let i0=0,i1=bars.length-1;
+  if(typeof r0==="number"&&typeof r1==="number"){
+    i0=Math.max(0,Math.floor(r0));
+    i1=Math.min(bars.length-1,Math.ceil(r1));
+  }else{
+    const s=String(r0),e=String(r1);
+    const found=bars.findIndex(b=>b.time>=s);
+    i0=found<0?0:found;
+    for(let i=bars.length-1;i>=0;i--){if(bars[i].time<=e){i1=i;break}}
+  }
+  if(i1<i0)return bars;
+  return bars.slice(i0,i1+1);
+}
+function followRange(n){
+  if(isFullSession()||n<=0)return null;
+  const start=Math.max(0,n-windowKeep());
+  return [start-0.5,n-0.5];
+}
+let chartPanBound=false;
+function bindChartPan(){
+  if(chartPanBound)return;
+  const el=document.getElementById("chart");
+  if(!el||typeof el.on!=="function")return;
+  el.on("plotly_relayout",fitChartY);
+  el.on("plotly_relayouting",fitChartY);
+  chartPanBound=true;
+}
+function fitChartY(e){
+  if(ignoreRelayout||!chartBars.length)return;
+  const pair=axisPair(e);
+  if(!pair)return;
+  const vis=barsCoveringRange(chartBars,pair[0],pair[1]);
+  if(!vis.length)return;
+  const scales=priceVolRange(vis);
+  ignoreRelayout++;
+  Promise.resolve(Plotly.relayout("chart",{"yaxis.range":scales.price,"yaxis2.range":scales.vol})).finally(()=>{ignoreRelayout=Math.max(0,ignoreRelayout-1)});
+}
 function renderChart(force=false){
-  if(!DATA.ticks.length){Plotly.react("chart",[],{paper_bgcolor:"#202b31",plot_bgcolor:"#202b31",font:{color:"#dce5e9"},annotations:[{text:"CSVを読み込んでください",xref:"paper",yref:"paper",x:.5,y:.5,showarrow:false,font:{size:18}}]},{displayModeBar:false});return}
+  if(!DATA.ticks.length){
+    ignoreRelayout++;
+    Promise.resolve(Plotly.react("chart",[],{paper_bgcolor:"#202b31",plot_bgcolor:"#202b31",font:{color:"#dce5e9"},annotations:[{text:"CSVを読み込んでください",xref:"paper",yref:"paper",x:.5,y:.5,showarrow:false,font:{size:18}}]},{displayModeBar:false})).finally(()=>{bindChartPan();ignoreRelayout=Math.max(0,ignoreRelayout-1)});
+    return;
+  }
   const now=performance.now();if(!force&&now-lastRender<120)return;lastRender=now;
-  const bars=visibleBars(buildLiveBars(idx));
+  // Every bar up to the playback index stays in the traces. 直近中心 only
+  // chooses the starting x window; dragging backward must still reach earlier candles and volume.
+  const bars=buildLiveBars(idx);
+  chartBars=bars;
   const x=bars.map(b=>b.time),open=bars.map(b=>b.open),high=bars.map(b=>b.high),low=bars.map(b=>b.low),close=bars.map(b=>b.close),vol=bars.map(b=>b.volume),vwap=bars.map(b=>b.vwap);
-  const minP=Math.min(...low),maxP=Math.max(...high),pad=Math.max(20,(maxP-minP)*0.12),maxVol=Math.max(1,...vol);
+  const xr=followRange(bars.length);
+  const view=xr?bars.slice(Math.max(0,bars.length-windowKeep())):bars;
+  const scales=priceVolRange(view);
   const candle={type:"candlestick",x,open,high,low,close,name:barMinutes+"分足",increasing:{line:{color:"#1f8f3a"},fillcolor:"#1f8f3a"},decreasing:{line:{color:"#b52525"},fillcolor:"#b52525"},xaxis:"x",yaxis:"y"};
   const vwapLine={type:"scatter",mode:"lines",x,y:vwap,name:"VWAP",line:{color:"#d8d8d8",width:1.5},xaxis:"x",yaxis:"y"};
   const volume={type:"bar",x,y:vol,name:"出来高",marker:{color:"#e2a23b"},opacity:.85,xaxis:"x",yaxis:"y2"};
   const axisSpike={showspikes:true,spikemode:"across",spikesnap:"cursor",spikethickness:1,spikedash:"dot",spikecolor:"#dce5e9",showline:true};
+  const xaxis={rangeslider:{visible:false},gridcolor:"#43545c",tickfont:{size:11},...axisSpike,autorange:!xr};
+  if(xr)xaxis.range=xr;
   const layout={margin:{l:54,r:62,t:18,b:42},paper_bgcolor:"#202b31",plot_bgcolor:"#202b31",font:{color:"#dce5e9"},
-    xaxis:{rangeslider:{visible:false},gridcolor:"#43545c",tickfont:{size:11},...axisSpike},
-    yaxis:{domain:[.30,1],range:[minP-pad,maxP+pad],gridcolor:"#66777f",tickformat:",d",autorange:false,...axisSpike},
-    yaxis2:{domain:[0,.23],range:[0,maxVol*1.20],gridcolor:"#5b6b72",tickformat:",d",title:"出来高(株)",autorange:false,...axisSpike},
+    xaxis,
+    yaxis:{domain:[.30,1],range:scales.price,gridcolor:"#66777f",tickformat:",d",autorange:false,...axisSpike},
+    yaxis2:{domain:[0,.23],range:scales.vol,gridcolor:"#5b6b72",tickformat:",d",title:"出来高(株)",autorange:false,...axisSpike},
     showlegend:true,legend:{orientation:"h",x:0,y:1.04},dragmode:"pan"};
-  Plotly.react("chart",[candle,vwapLine,volume],layout,{displayModeBar:false,responsive:true,scrollZoom:true});
+  ignoreRelayout++;
+  Promise.resolve(Plotly.react("chart",[candle,vwapLine,volume],layout,{displayModeBar:false,responsive:true,scrollZoom:true})).finally(()=>{bindChartPan();ignoreRelayout=Math.max(0,ignoreRelayout-1)});
 }
 function addTickToTape(t){
   const tr=document.createElement("tr"),dir=t[4];tr.className=dir>0?"up":dir<0?"down":"flat";
