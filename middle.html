@@ -55,6 +55,10 @@ button.primary{background:#396d91}
 .foot{flex:0 0 auto;height:25px;color:#b4c0c5;font-size:12px;padding:3px 12px;border-top:1px solid #52636b;white-space:nowrap;overflow:hidden}
 .note{color:#b4c0c5;font-size:12px} a.linkbtn{color:#dce5e9;text-decoration:none;border:1px solid #5594bc;padding:5px 8px;background:#26343b;font-size:13px}
 .metricPlus,.tradePnlPlus{color:#8ee89a;font-weight:800}
+input#assetInput.tradePnlPlus{color:#8ee89a}
+input#assetInput.tradePnlMinus{color:#ff9a9a}
+input#assetInput.tradePnlNeutral{color:#dce5e9}
+input#assetInput:read-only{border-color:#7b91a0}
 .metricMinus,.tradePnlMinus{color:#ff9a9a;font-weight:800}
 .metricNeutral,.tradePnlNeutral{color:#dce5e9;font-weight:700}
 </style>
@@ -102,7 +106,6 @@ button.primary{background:#396d91}
 <span class="stat ehNow" id="ehNow">E/H -</span>
 </div>
 <div class="tradebar">
-<label class="note">資産 <input id="assetInput" type="text" value="1,000,000" style="width:110px"></label>
 <label class="note">株数 <input id="tradeQty" type="number" value="100" step="100" style="width:86px"></label>
 <label class="note">指値 <input id="limitPrice" type="number" value="" step="1" placeholder="現在値" style="width:90px"></label>
 <button id="setLimitNow" class="soft">現在値</button>
@@ -113,8 +116,8 @@ button.primary{background:#396d91}
 <button id="cancelOrders" class="soft">指値取消</button>
 <button id="resetTrading" class="danger">売買リセット</button>
 <span class="tradebox">
-<span>総資産 <b id="assetNow">-</b></span>
-<span>現金 <b id="cashNow">-</b></span>
+<label class="note">総資産 <input id="assetInput" type="text" value="1,000,000" style="width:110px" title="取引前の初期資金。売買が始まると現金と評価額に合わせて更新されます"></label>
+<span>現金 <b id="cashNow">1,000,000</b></span>
 <span>建玉 <b id="posNow">-</b></span>
 <span>平均 <b id="avgNow">-</b></span>
 <span>実現 <b id="realizedNow">-</b></span>
@@ -474,12 +477,19 @@ function updateTradeLog(){
     body.appendChild(row);
   }
 }
+function tradingIsFlat(){
+  return TRADE.position===0 && TRADE.history.length===0 && TRADE.pending.length===0;
+}
 function updateTradeUI(){
   const price=getCurrentPrice();
   const unreal=TRADE.position>0&&Number.isFinite(price)?(price-TRADE.avgPrice)*TRADE.position:0;
   const equity=TRADE.cash+(TRADE.position>0&&Number.isFinite(price)?TRADE.position*price:0);
   const pnl=equity-TRADE.startCash;
-  document.getElementById("assetNow").textContent=fmtNum(equity,0);
+  const assetInput=document.getElementById("assetInput");
+  const flat=tradingIsFlat();
+  // Before any trade, this field is the starting capital. After that it is live 総資産.
+  assetInput.readOnly=!flat;
+  if(!flat && document.activeElement!==assetInput) assetInput.value=fmtNum(equity,0);
   document.getElementById("cashNow").textContent=fmtNum(TRADE.cash,0);
   document.getElementById("posNow").textContent=fmtNum(TRADE.position,0);
   document.getElementById("avgNow").textContent=TRADE.position?fmtNum(TRADE.avgPrice,2):"-";
@@ -487,7 +497,8 @@ function updateTradeUI(){
   document.getElementById("unrealizedNow").textContent=fmtSigned(unreal,0);
   document.getElementById("pnlNow").textContent=fmtSigned(pnl,0);
   document.getElementById("pendingNow").textContent=TRADE.pending.length.toLocaleString();
-  tradeClass(document.getElementById("assetNow"),pnl);
+  tradeClass(assetInput, flat?0:pnl);
+  tradeClass(document.getElementById("cashNow"), 0);
   tradeClass(document.getElementById("realizedNow"),TRADE.realized);
   tradeClass(document.getElementById("unrealizedNow"),unreal);
   tradeClass(document.getElementById("pnlNow"),pnl);
@@ -498,13 +509,28 @@ function formatAssetInput(){
   const n=cleanNum(el.value);
   if(Number.isFinite(n)&&n>0)el.value=fmtNum(n,0);
 }
-function resetTrading(render=true){
+function startingCapitalFromInput(){
   const start=cleanNum(document.getElementById("assetInput").value);
-  const initial=Number.isFinite(start)&&start>0?start:1000000;
+  return Number.isFinite(start)&&start>0?start:1000000;
+}
+function resetTrading(render=true){
+  const assetInput=document.getElementById("assetInput");
+  // While a session is open the field shows live 総資産, so reset returns to the capital typed before trading.
+  const initial=assetInput.readOnly ? TRADE.startCash : startingCapitalFromInput();
   TRADE={startCash:initial,cash:initial,position:0,avgPrice:0,realized:0,pending:[],history:[],nextOrderId:1};
+  assetInput.value=fmtNum(initial,0);
+  assetInput.readOnly=false;
   formatAssetInput();
   updateTradeUI();
   if(render)renderChart(true);
+}
+function applyStartingCapital(){
+  if(!tradingIsFlat())return;
+  const initial=startingCapitalFromInput();
+  TRADE.startCash=initial;
+  TRADE.cash=initial;
+  formatAssetInput();
+  updateTradeUI();
 }
 function recordTrade(side,qty,price,ms,kind,cashDelta,realizedDelta){
   TRADE.history.push({id:TRADE.history.length+1, side, qty, price, ms, kind, time:fmtMs(ms), cashDelta, realizedDelta, positionAfter:TRADE.position, cashAfter:TRADE.cash});
@@ -819,9 +845,13 @@ document.getElementById("sellLimit").onclick=()=>placeLimit("sell");
 document.getElementById("cancelOrders").onclick=()=>{TRADE.pending=[]; updateTradeUI();};
 document.getElementById("resetTrading").onclick=()=>resetTrading(true);
 const assetInput=document.getElementById("assetInput");
-assetInput.addEventListener("focus",()=>{const n=cleanNum(assetInput.value); if(Number.isFinite(n))assetInput.value=String(Math.round(n));});
-assetInput.addEventListener("blur",formatAssetInput);
-assetInput.addEventListener("change",formatAssetInput);
+assetInput.addEventListener("focus",()=>{
+  if(assetInput.readOnly)return;
+  const n=cleanNum(assetInput.value);
+  if(Number.isFinite(n))assetInput.value=String(Math.round(n));
+});
+assetInput.addEventListener("blur",applyStartingCapital);
+assetInput.addEventListener("change",applyStartingCapital);
 slider.oninput=e=>{
   if(!DATA.ticks.length)return;
   pause();
