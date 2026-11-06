@@ -5,7 +5,7 @@
 <title>歩値CSVリプレイ Dual Chart Backtest</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <style>
-:root{--bg:#202b31;--panel:#1b252b;--text:#e8eef2;--green:#1f7a00;--red:#8a0d0d;--yellow:#e2a23b;--line:#50616a;--soft:#b4c0c5}
+:root{--bg:#202b31;--panel:#1b252b;--text:#e8eef2;--green:#1f7a00;--red:#8a0d0d;--yellow:#e2a23b;--line:#50616a;--soft:#b4c0c5;--tape-frame:360px}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 header{min-height:58px;display:flex;align-items:center;gap:10px;padding:6px 14px;border-bottom:1px solid #83919a;font-weight:700;white-space:nowrap;overflow:hidden;flex-wrap:wrap}
@@ -28,16 +28,16 @@ a.linkbtn{color:#dce5e9;text-decoration:none;border:1px solid #5594bc;padding:5p
 .metricNeutral,.tradePnlNeutral{color:#dce5e9;font-weight:700}
 .refReady{color:#8ee89a;font-weight:800}
 .refMissing{color:#ffbf7a;font-weight:800}
-.layout{display:grid;grid-template-columns:max-content minmax(0,1fr);height:calc(100vh - 71px)}
-.left{border-right:1px solid #8b9aa2;overflow:hidden;display:flex;flex-direction:column}
+.layout{display:grid;grid-template-columns:var(--tape-frame) minmax(0,1fr);height:calc(100vh - 71px)}
+.left{width:var(--tape-frame);min-width:var(--tape-frame);max-width:var(--tape-frame);box-sizing:border-box;border-right:1px solid #8b9aa2;overflow:hidden;display:flex;flex-direction:column}
 .tabs{height:38px;display:flex;align-items:end;border-bottom:1px solid #778890}
 .tab{padding:8px 18px;color:#58a6d6;font-weight:700;border-bottom:3px solid #58a6d6}
-.tapeWrap{flex:1;overflow:auto;scrollbar-gutter:stable}
-.table{width:max-content;border-collapse:collapse;table-layout:auto;font-size:13px;font-variant-numeric:tabular-nums}
-.table thead th{position:sticky;top:0;background:#4a4d4d;color:#fff;padding:6px 8px;border:1px solid #707879;white-space:nowrap}
-.table tbody td{padding:4px 8px;border:1px solid #52636b;text-align:right;font-weight:700;white-space:nowrap}
+.tapeWrap{flex:1;min-width:0;min-height:0;overflow:auto;scrollbar-gutter:stable}
+.table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:13px;font-variant-numeric:tabular-nums}
+.table col.price{width:72px}.table col.qty{width:76px}.table col.amount{width:92px}
+.table thead th{position:sticky;top:0;background:#4a4d4d;color:#fff;padding:6px 6px;border:1px solid #707879;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.table tbody td{padding:4px 6px;border:1px solid #52636b;text-align:right;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .table tbody td.time{text-align:center;font-size:12px}
-/* Column mins are set in lockTapeColumns() from the tape's own widest prints. */
 tr.up td.price,tr.up td.qty,tr.up td.amount{background:var(--green);color:white}
 tr.down td.price,tr.down td.qty,tr.down td.amount{background:var(--red);color:white}
 tr.flat td.price,tr.flat td.qty,tr.flat td.amount{background:#29353b;color:white}
@@ -66,7 +66,7 @@ tr.flat td.price,tr.flat td.qty,tr.flat td.amount{background:#29353b;color:white
 .logTable tbody td.txt{text-align:left}
 .logTable tbody td.center{text-align:center}
 .foot{height:25px;color:#b4c0c5;font-size:12px;padding:3px 12px;border-top:1px solid #52636b}
-@media (max-width: 1200px){.layout{grid-template-columns:max-content minmax(0,1fr)}.chartGrid{grid-template-columns:1fr}.logPane{height:210px}}
+@media (max-width: 1200px){.layout{grid-template-columns:var(--tape-frame) minmax(0,1fr)}.chartGrid{grid-template-columns:1fr}.logPane{height:210px}}
 </style>
 </head>
 <body>
@@ -100,7 +100,7 @@ tr.flat td.price,tr.flat td.qty,tr.flat td.amount{background:#29353b;color:white
   <section class="left">
     <div class="tabs"><div class="tab">歩み値</div></div>
     <div class="tapeWrap">
-      <table class="table"><thead><tr><th>値段</th><th>株数</th><th>金額<br>(億円)</th><th>時刻</th></tr></thead><tbody id="tape"></tbody></table>
+      <table class="table"><colgroup><col class="price"><col class="qty"><col class="amount"><col class="time"></colgroup><thead><tr><th>値段</th><th>株数</th><th>金額<br>(万円)</th><th>時刻</th></tr></thead><tbody id="tape"></tbody></table>
     </div>
   </section>
   <section class="right">
@@ -465,45 +465,15 @@ function renderRefChart(){
   document.getElementById('refChartTitle').textContent='1570 ' + (REFDATA.tradeDate ? '/ '+REFDATA.tradeDate : '');
 }
 function renderAllCharts(force=false){ renderMainChart(force); renderRefChart(); }
-function addTickToTape(t){ const tr=document.createElement('tr'),dir=t[4]; tr.className=dir>0?'up':dir<0?'down':'flat'; tr.innerHTML='<td class="price">'+t[1].toLocaleString()+'</td><td class="qty">'+t[2].toLocaleString()+'</td><td class="amount">'+t[3].toFixed(4)+'</td><td class="time">'+t[0]+'</td>'; tapeBody.prepend(tr); while(tapeBody.children.length>120)tapeBody.removeChild(tapeBody.lastChild); }
+function fmtManYen(oku){ const man=Math.round(Number(oku)*1000)*10; return man.toLocaleString(); }
+function addTickToTape(t){ const tr=document.createElement('tr'),dir=t[4]; tr.className=dir>0?'up':dir<0?'down':'flat'; tr.innerHTML='<td class="price">'+t[1].toLocaleString()+'</td><td class="qty">'+t[2].toLocaleString()+'</td><td class="amount">'+fmtManYen(t[3])+'</td><td class="time">'+t[0]+'</td>'; tapeBody.prepend(tr); while(tapeBody.children.length>120)tapeBody.removeChild(tapeBody.lastChild); }
 function rebuildTapeAround(){ tapeBody.innerHTML=''; for(let i=Math.max(0,idx-80);i<=idx;i++)addTickToTape(DATA.ticks[i]); }
 function updateHeader(){ if(!DATA.ticks.length)return; const t=DATA.ticks[idx], price=t[1], vwap=t[7]; nowTime.textContent=t[0]; nowPrice.textContent=price.toLocaleString(); document.getElementById('vwapNow').textContent=fmtNum(vwap,2); const devPct=(price/vwap-1)*100; setMetric('vwapDev',fmtPct(devPct),devPct); const prev=cleanNum(document.getElementById('prevClose').value); const diff=Number.isFinite(prev)?price-prev:NaN; const diffPct=Number.isFinite(prev)?(price/prev-1)*100:NaN; setMetric('chg',Number.isFinite(diff)?fmtSigned(diff,0):'-',diff); setMetric('chgPct',Number.isFinite(diffPct)?fmtPct(diffPct):'-',diffPct); slider.value=idx; progress.textContent=idx.toLocaleString()+' / '+DATA.tickCount.toLocaleString(); clock.textContent=fmtMs(t[5]); updateTradeUI(); }
 function advanceToPlayMs(ms){ currentPlayMs=Math.min(ms,DATA.summary.endPlayMs); const nextIdx=findTickIndexByPlayMs(currentPlayMs); if(nextIdx>idx){ for(let i=idx+1;i<=nextIdx;i++){ idx=i; processPendingOrders(DATA.ticks[i]); addTickToTape(DATA.ticks[i]); } } else { idx=nextIdx; rebuildTapeAround(); } updateHeader(); renderAllCharts(false); if(currentPlayMs>=DATA.summary.endPlayMs)pause(); }
 function play(){ if(!DATA.ticks.length)return; pause(); playBaseReal=performance.now(); playBaseMarket=currentPlayMs; const speed=Number(document.getElementById('speed').value); timer=setInterval(()=>{ const elapsed=performance.now()-playBaseReal; advanceToPlayMs(playBaseMarket+elapsed*speed); },35); }
 function pause(){ if(timer)clearInterval(timer); timer=null; }
 function resetReplay(){ pause(); if(!DATA.ticks.length){ renderAllCharts(true); return; } idx=0; currentPlayMs=DATA.summary.startPlayMs; tapeBody.innerHTML=''; addTickToTape(DATA.ticks[0]); updateHeader(); renderAllCharts(true); }
-function lockTapeColumns(){
-  if(!DATA.ticks.length)return;
-  let maxPrice=0,maxQty=0,maxAmt=0;
-  for(const t of DATA.ticks){
-    if(t[1]>maxPrice)maxPrice=t[1];
-    if(t[2]>maxQty)maxQty=t[2];
-    if(t[3]>maxAmt)maxAmt=t[3];
-  }
-  const table=document.querySelector(".tapeWrap table");
-  const holder=document.createElement("tbody");
-  const tr=document.createElement("tr");
-  tr.innerHTML='<td class="price"></td><td class="qty"></td><td class="amount"></td><td class="time"></td>';
-  holder.appendChild(tr);
-  holder.style.cssText="position:absolute;left:-9999px;top:0;visibility:hidden";
-  table.appendChild(holder);
-  const labels=[maxPrice.toLocaleString(),maxQty.toLocaleString(),maxAmt.toFixed(4),"88:88:88.888"];
-  const widths=[...tr.children].map((td,i)=>{
-    const s=document.createElement("span");
-    s.textContent=labels[i];
-    td.appendChild(s);
-    return Math.ceil(s.getBoundingClientRect().width)+"px";
-  });
-  holder.remove();
-  let style=document.getElementById("tapeColLock");
-  if(!style){style=document.createElement("style");style.id="tapeColLock";document.head.appendChild(style)}
-  style.textContent=
-    ".tapeWrap thead th:nth-child(1),.tapeWrap td.price{min-width:"+widths[0]+"}"+
-    ".tapeWrap thead th:nth-child(2),.tapeWrap td.qty{min-width:"+widths[1]+"}"+
-    ".tapeWrap thead th:nth-child(3),.tapeWrap td.amount{min-width:"+widths[2]+"}"+
-    ".tapeWrap thead th:nth-child(4),.tapeWrap td.time{min-width:"+widths[3]+"}";
-}
-function installData(d){ DATA=d; lockTapeColumns(); idx=0; currentPlayMs=DATA.summary.startPlayMs; document.getElementById('stockCode').value=DATA.code||''; document.getElementById('tradeDate').value=DATA.tradeDate||''; document.getElementById('symbolName').value=DATA.symbol||''; updateKabutanLinks(DATA.code); const sub=[DATA.market, DATA.industry].filter(Boolean).join(' / '); document.getElementById('titleSymbol').textContent='● '+(DATA.code?DATA.code+' ':'')+DATA.symbol+(sub?' ['+sub+']':'')+(DATA.tradeDate?' / '+DATA.tradeDate:''); slider.max=DATA.tickCount-1; slider.value=0; resetReplay(); resetTrading(); }
+function installData(d){ DATA=d; idx=0; currentPlayMs=DATA.summary.startPlayMs; document.getElementById('stockCode').value=DATA.code||''; document.getElementById('tradeDate').value=DATA.tradeDate||''; document.getElementById('symbolName').value=DATA.symbol||''; updateKabutanLinks(DATA.code); const sub=[DATA.market, DATA.industry].filter(Boolean).join(' / '); document.getElementById('titleSymbol').textContent='● '+(DATA.code?DATA.code+' ':'')+DATA.symbol+(sub?' ['+sub+']':'')+(DATA.tradeDate?' / '+DATA.tradeDate:''); slider.max=DATA.tickCount-1; slider.value=0; resetReplay(); resetTrading(); }
 async function loadFile(file){ const buf=await file.arrayBuffer(); const text=new TextDecoder('utf-8').decode(buf); const rows=parseCSV(text); const data=buildDataFromRows(rows,file.name); installData(data); }
 async function loadRefFile(file){ const buf=await file.arrayBuffer(); const text=new TextDecoder('utf-8').decode(buf); const rows=parseCSV(text); const data=buildDataFromRows(rows,file.name,'1570'); REFDATA=data; REFDATA.symbol='1570'; const st=document.getElementById('refStatus'); const codeOk=(data.code==='1570' || /1570/.test(file.name)); st.textContent=(codeOk?'1570読込済':'参照CSV読込済')+' / '+data.tickCount.toLocaleString()+'件'; st.classList.remove('refMissing'); st.classList.add('refReady'); renderAllCharts(true); }
 document.getElementById('csvFile').addEventListener('change',e=>{ const file=e.target.files[0]; if(!file)return; loadFile(file).catch(err=>alert('CSV読込エラー: '+err.message)); });
