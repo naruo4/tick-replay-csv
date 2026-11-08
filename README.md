@@ -1,5 +1,7 @@
 # 歩値CSVリプレイ
 
+※2026/11/6 歩値情報エリアを縮小、一部表示を修正。　仮想売買機能をつけた中間版を作成しました。
+
 <img width="2542" height="1322" alt="image" src="https://github.com/user-attachments/assets/f7947e7a-340c-4754-ba3a-3a45d26d9a3b" />
 
 以下のリンクからアクセスできます。
